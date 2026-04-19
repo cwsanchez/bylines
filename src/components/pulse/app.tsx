@@ -283,8 +283,8 @@ export function PulseApp({ initialFeeds = {}, isDemo }: PulseAppProps) {
     columnCount === 1
       ? "grid-cols-1"
       : columnCount === 2
-        ? "grid-cols-1 lg:grid-cols-2"
-        : "grid-cols-1 lg:grid-cols-2 xl:grid-cols-3";
+        ? "grid-cols-1 md:grid-cols-2"
+        : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3";
 
   const sectionOptions = CORE_SECTIONS.map((s) => ({
     id: s.id,
