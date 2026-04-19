@@ -8,19 +8,20 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function HomePage() {
-  // Pre-fetch the first couple of core sections server-side so the initial
-  // paint feels instant. Remaining sections hydrate client-side.
+  // Pulse now starts with a single-column view. Preload just the default
+  // first category (International) so initial paint feels instant without
+  // hammering X on every request.
   const initialFeeds: Record<string, SectionFeed> = {};
-  const preload = CORE_SECTIONS.slice(0, 2);
-  for (const s of preload) {
+  const [first] = CORE_SECTIONS;
+  if (first) {
     try {
       const feed = await getSectionFeed({
-        sectionId: s.id,
+        sectionId: first.id,
         timeframe: "24h",
       });
-      initialFeeds[s.id] = feed;
+      initialFeeds[first.id] = feed;
     } catch (err) {
-      console.error(`[pulse] preload failed for ${s.id}`, err);
+      console.error(`[pulse] preload failed for ${first.id}`, err);
     }
   }
 

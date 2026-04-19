@@ -14,18 +14,23 @@ describe("buildDemoFeed", () => {
   });
 
   it("respects the timeframe window", () => {
-    const short = buildDemoFeed("international", "6h", now);
-    const long = buildDemoFeed("international", "72h", now);
+    const short = buildDemoFeed("international", "24h", now);
+    const long = buildDemoFeed("international", "month", now);
     expect(short.posts.length).toBeLessThanOrEqual(long.posts.length);
     for (const p of short.posts) {
       const age = (now - new Date(p.created_at).getTime()) / 3_600_000;
-      expect(age).toBeLessThanOrEqual(6);
+      expect(age).toBeLessThanOrEqual(24);
     }
   });
 
-  it("fabricates plausible state data", () => {
-    const feed = buildDemoFeed("state-california", "24h", now);
+  it("includes pop-culture category", () => {
+    const feed = buildDemoFeed("pop-culture", "week", now);
     expect(feed.posts.length).toBeGreaterThan(0);
-    expect(feed.posts[0].section_id).toBe("state-california");
+    expect(feed.posts[0].section_id).toBe("pop-culture");
+  });
+
+  it("attaches why_it_matters on curated posts", () => {
+    const feed = buildDemoFeed("us-politics", "24h", now);
+    expect(feed.posts.some((p) => p.why_it_matters)).toBe(true);
   });
 });

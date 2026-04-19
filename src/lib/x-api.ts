@@ -4,6 +4,14 @@ import { timeframeToHours, type Timeframe } from "./sections";
 
 const X_API_BASE = "https://api.twitter.com/2/tweets/search/recent";
 
+/**
+ * X's recent search endpoint can only look back 7 days. For timeframes
+ * longer than a week we clamp to that limit at fetch-time; the feed
+ * service is responsible for merging the result with an older archive
+ * to build the full "month" view.
+ */
+const RECENT_SEARCH_MAX_HOURS = 24 * 7;
+
 interface XUser {
   id: string;
   name: string;
@@ -77,14 +85,15 @@ export interface SearchTweetsParams {
 export async function searchTweets({
   query,
   timeframe,
-  maxResults = 20,
+  maxResults = 100,
   signal,
 }: SearchTweetsParams): Promise<PulsePost[]> {
   if (!env.X_BEARER_TOKEN) {
     throw new XApiError("X_BEARER_TOKEN is not configured", 500);
   }
 
-  const hours = timeframeToHours(timeframe);
+  const requestedHours = timeframeToHours(timeframe);
+  const hours = Math.min(requestedHours, RECENT_SEARCH_MAX_HOURS);
   const startTime = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
   const params = new URLSearchParams({

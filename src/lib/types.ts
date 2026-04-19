@@ -16,6 +16,17 @@ export interface PulsePost {
   media: PulseMedia[];
   metrics: PulseMetrics;
   fetched_at: string;
+  /**
+   * Optional editorial score produced by Grok while ranking candidates.
+   * Higher = more important / trending. Not shown in UI, but useful for
+   * debugging and ordering.
+   */
+  editorial_score?: number;
+  /**
+   * One-line "why this matters" rationale produced by Grok when curating.
+   * Rendered in the pod card under the headline for extra context.
+   */
+  why_it_matters?: string | null;
 }
 
 export interface PulseMedia {
@@ -35,11 +46,17 @@ export interface PulseMetrics {
   impression_count?: number;
 }
 
-/** Grok-generated section summary + per-post key takeaways. */
+/** Grok-generated editorial briefing for the section. */
 export interface PulseSummary {
   section_id: string;
   timeframe: string;
+  /**
+   * A well-structured paragraph (roughly 120-200 words) summarising what
+   * matters most in this section for the chosen time window. Written in
+   * calm, factual newsroom prose.
+   */
   overview: string;
+  /** 3-6 short theme tags describing recurring subjects. */
   themes: string[];
   /** Map of tweet_id -> array of short bullet strings. */
   takeaways: Record<string, string[]>;
@@ -58,4 +75,6 @@ export interface SectionFeed {
   cached: boolean;
   /** Optional demo flag when running without credentials. */
   demo?: boolean;
+  /** ISO timestamp of the next scheduled refresh (for UI copy). */
+  next_refresh_at?: string;
 }

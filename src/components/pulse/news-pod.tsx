@@ -50,6 +50,18 @@ export function NewsPod({ post, onOpen }: Props) {
           {snippet}
         </h3>
 
+        {post.why_it_matters ? (
+          <p
+            className="text-xs text-muted-foreground/90 italic leading-snug line-clamp-2"
+            data-testid="why-it-matters"
+          >
+            <span className="text-primary not-italic font-medium mr-1">
+              Why:
+            </span>
+            {post.why_it_matters}
+          </p>
+        ) : null}
+
         <div className="flex items-center justify-between pt-1">
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1">
