@@ -61,8 +61,10 @@ export function Header({
 
         <div className="ml-auto flex items-center gap-3 sm:gap-4">
           {/* Timeframe selector */}
-          <label className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="uppercase tracking-wider">Window</span>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span className="hidden sm:inline uppercase tracking-wider">
+              Window
+            </span>
             <select
               value={timeframe}
               onChange={(e) => onTimeframeChange(e.target.value as Timeframe)}
