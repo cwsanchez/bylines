@@ -144,21 +144,38 @@ curl -X POST \
 
 ### Scheduled runs
 
-Bylines ships with a Vercel Cron config that keeps the site fresh without
-bursty spikes of xAI traffic:
+Bylines ships with a **GitHub Actions** workflow
+([`.github/workflows/generate.yml`](./.github/workflows/generate.yml)) that
+keeps the site fresh without bursty spikes of xAI traffic:
 
-- [`vercel.json`](./vercel.json) calls `GET /api/generate?schedule=1` on
-  `0 */2 * * *` &mdash; once every two hours, on the hour, UTC.
+- Every two hours (UTC), the workflow `POST`s to
+  `/api/generate?schedule=1` on your production deployment.
 - In scheduled mode the endpoint picks **one** topic based on the current UTC
   slot and writes **one** article for it. With six topics on a two-hour
   cadence, every beat is serviced twice per day, roughly 12 hours apart.
 - A rolling **24-hour cap of 2 articles per topic** is enforced by
-  `generateOnSchedule`, so extra / manual cron hits are safe no-ops. The cap
-  is tunable via `?daily_cap=N` (1&ndash;6).
-- Requests from Vercel Cron are auto-authorized via the `x-vercel-cron`
-  header, so the cron entry doesn't need to embed `GENERATE_SECRET`. Manual
-  callers still need `Authorization: Bearer $GENERATE_SECRET` (or
-  `?secret=...`) when the secret is set.
+  `generateOnSchedule`, so extra / manual hits are safe no-ops. The cap is
+  tunable via `?daily_cap=N` (1&ndash;6).
+- The workflow retries with exponential backoff if the Vercel function is
+  cold-starting or the xAI API is momentarily flaky.
+
+#### Why GitHub Actions instead of Vercel Cron?
+
+Vercel's Hobby plan only allows cron expressions that run **once per day**.
+Anything more frequent (like `0 */2 * * *`) silently fails to register at
+deploy time &mdash; the deployment still succeeds, but the cron is never
+scheduled. GitHub Actions avoids that trap, runs on any plan, is free for
+public repos, and its logs are a lot easier to read than Vercel's cron UI.
+
+#### Required GitHub configuration
+
+1. Add a **repository secret** named `GENERATE_SECRET` whose value matches
+   the `GENERATE_SECRET` environment variable set on your Vercel project.
+2. (Optional) Add a **repository variable** named `BYLINES_URL` pointing at
+   your deployment (e.g. `https://bylines.vercel.app`). If unset, the
+   workflow falls back to `https://bylines.vercel.app`.
+3. The workflow also exposes a **"Run workflow"** button in the Actions tab
+   so you can kick off a run (scheduled tick or a specific topic) on demand.
 
 You can exercise the schedule logic locally with:
 
@@ -227,10 +244,13 @@ supabase/
   `runtime = "nodejs"` and `maxDuration = 300` seconds.
 - Set **all** env vars in your host's dashboard. `SUPABASE_SERVICE_ROLE_KEY`
   is a secret &mdash; never ship it to the client.
-- `vercel.json` wires up a cron that hits `/api/generate?schedule=1` every
-  two hours. Vercel's built-in cron signing is trusted automatically, so no
-  additional secret wiring is needed there; manual callers still use
-  `GENERATE_SECRET`.
+- Article generation is scheduled via a **GitHub Actions** workflow at
+  [`.github/workflows/generate.yml`](./.github/workflows/generate.yml). It
+  `POST`s to `/api/generate?schedule=1` every two hours with a
+  `GENERATE_SECRET`-bearing Authorization header. The `vercel.json` in this
+  repo intentionally does **not** declare a cron &mdash; Vercel Hobby only
+  allows daily cron expressions and silently skips registration of anything
+  more frequent, which broke production scheduling previously.
 - The `/` and `/topic/[slug]` pages are server-rendered on each request;
   `/article/[slug]` uses `revalidate = 120` (ISR) and pre-renders the 100
   most recent slugs at build time.

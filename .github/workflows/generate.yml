@@ -1,0 +1,132 @@
+name: Generate articles
+
+# Kicks the deployed Bylines `/api/generate?schedule=1` endpoint on a schedule.
+#
+# Why GitHub Actions instead of Vercel Cron?
+#
+# Vercel Cron on the Hobby plan is restricted to once-per-day expressions.
+# A multi-per-day schedule (like `0 */2 * * *`) silently fails to register
+# during deployment, which is exactly the failure mode that stopped Bylines
+# from producing new stories. GitHub Actions runs on GitHub's infrastructure,
+# is free for public repos, and gives us logs we can actually read.
+#
+# Each tick does one HTTP request to the app; the heavy lifting (Grok calls,
+# Supabase writes) happens inside the Next.js function. The cap logic in
+# `generateOnSchedule` means extra / overlapping ticks are safe no-ops.
+
+on:
+  schedule:
+    # Every 2 hours, on the hour, UTC. Aligns with generateOnSchedule's
+    # default slotHours=2 cadence (6 topics, ~2 runs/topic/day, ~12h apart).
+    - cron: "0 */2 * * *"
+  # Allow manual "Run workflow" clicks from the GitHub UI.
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Generation mode"
+        required: true
+        default: "schedule"
+        type: choice
+        options:
+          - schedule
+          - topic
+      topic:
+        description: "Topic slug (only used when mode=topic)"
+        required: false
+        default: ""
+      count:
+        description: "Article count (only used when mode=topic, 1-6)"
+        required: false
+        default: "1"
+
+concurrency:
+  group: bylines-generate
+  cancel-in-progress: false
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Resolve target URL
+        id: url
+        env:
+          BYLINES_URL: ${{ vars.BYLINES_URL }}
+        run: |
+          if [ -z "$BYLINES_URL" ]; then
+            echo "BYLINES_URL repo variable is not set; defaulting to https://bylines.vercel.app" >&2
+            BYLINES_URL="https://bylines.vercel.app"
+          fi
+          BYLINES_URL="${BYLINES_URL%/}"
+          echo "url=${BYLINES_URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Build request URL
+        id: req
+        env:
+          BASE: ${{ steps.url.outputs.url }}
+          MODE: ${{ inputs.mode }}
+          TOPIC: ${{ inputs.topic }}
+          COUNT: ${{ inputs.count }}
+        run: |
+          if [ -z "$MODE" ] || [ "$MODE" = "schedule" ]; then
+            URL="$BASE/api/generate?schedule=1"
+          else
+            if [ -z "$TOPIC" ]; then
+              echo "mode=topic requires a topic input" >&2
+              exit 1
+            fi
+            COUNT="${COUNT:-1}"
+            URL="$BASE/api/generate?topic=${TOPIC}&count=${COUNT}"
+          fi
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+          echo "Target: $URL"
+
+      - name: Call /api/generate (with retry)
+        env:
+          URL: ${{ steps.req.outputs.url }}
+          GENERATE_SECRET: ${{ secrets.GENERATE_SECRET }}
+        run: |
+          set -u
+          attempts=0
+          max=4
+          delay=10
+          last_body=""
+          last_code=""
+
+          auth_header=()
+          if [ -n "$GENERATE_SECRET" ]; then
+            auth_header=(-H "Authorization: Bearer $GENERATE_SECRET")
+          else
+            echo "::warning::GENERATE_SECRET repo secret is not set. The /api/generate endpoint must be open for this to work, which is not recommended in production."
+          fi
+
+          while [ "$attempts" -lt "$max" ]; do
+            attempts=$((attempts + 1))
+            echo "Attempt $attempts / $max..."
+            body_file="$(mktemp)"
+            # -m 540: below GitHub Actions step timeout; the Vercel function
+            # itself caps at maxDuration=300s.
+            http_code="$(curl -sS -X POST \
+              -m 540 \
+              -o "$body_file" \
+              -w "%{http_code}" \
+              "${auth_header[@]}" \
+              "$URL" || echo "000")"
+            last_code="$http_code"
+            last_body="$(cat "$body_file")"
+            rm -f "$body_file"
+            echo "HTTP $http_code"
+            echo "Body: $last_body"
+            if [ "$http_code" = "200" ]; then
+              echo "success=true" >> "$GITHUB_OUTPUT" || true
+              exit 0
+            fi
+            if [ "$attempts" -lt "$max" ]; then
+              echo "Retrying in ${delay}s..."
+              sleep "$delay"
+              delay=$((delay * 2))
+            fi
+          done
+
+          echo "::error::/api/generate failed after $attempts attempts (last HTTP $last_code): $last_body"
+          exit 1
