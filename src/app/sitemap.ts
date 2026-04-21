@@ -11,6 +11,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   return [
     { url: `${base}/`, lastModified: now },
     { url: `${base}/about`, lastModified: now },
+    { url: `${base}/archive`, lastModified: now },
     ...topics.map((t) => ({
       url: `${base}/topic/${t.slug}`,
       lastModified: now,

@@ -14,6 +14,9 @@ export function SiteFooter() {
           </div>
         </div>
         <div className="flex items-center gap-5">
+          <Link href="/archive" className="hover:text-foreground">
+            Archive
+          </Link>
           <Link href="/about" className="hover:text-foreground">
             About
           </Link>

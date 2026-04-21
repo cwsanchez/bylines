@@ -109,8 +109,12 @@ function EmptyState({ tf }: { tf: Timeframe }) {
     <div className="rounded-xl border hairline bg-card p-10 text-center">
       <h2 className="font-display text-2xl">No articles yet</h2>
       <p className="mt-2 text-muted-foreground">
-        Nothing has been published in {label}. The newsroom generates fresh
-        pieces on a schedule; check back soon, or trigger a run with{" "}
+        Nothing has been published in {label}. The newsroom rotates through the
+        beats every two hours &mdash; check back soon, peek at the{" "}
+        <a href="/archive" className="underline underline-offset-4">
+          archive
+        </a>
+        , or trigger a run with{" "}
         <code className="px-1.5 py-0.5 rounded bg-muted text-sm">
           POST /api/generate
         </code>

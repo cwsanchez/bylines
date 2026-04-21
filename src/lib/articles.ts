@@ -197,6 +197,67 @@ export async function listArticleSlugs(): Promise<
   }[];
 }
 
+/** Articles live on the home/topic pages for this long; older stories move
+ * to the `/archive` view. */
+export const ARCHIVE_AFTER_DAYS = 30;
+
+export function archiveCutoff(now: Date = new Date()): Date {
+  const d = new Date(now);
+  d.setUTCDate(d.getUTCDate() - ARCHIVE_AFTER_DAYS);
+  return d;
+}
+
+interface ListArchiveArgs {
+  topicSlug?: string;
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * List articles older than {@link ARCHIVE_AFTER_DAYS} days, ordered
+ * newest-first. Supports simple offset pagination for the archive index.
+ */
+export async function listArchiveArticles(
+  args: ListArchiveArgs = {},
+): Promise<{ articles: ArticleWithAuthor[]; total: number }> {
+  const supa = getAnonSupabase() ?? getServiceSupabase();
+  if (!supa) return { articles: [], total: 0 };
+
+  const cutoff = archiveCutoff().toISOString();
+  let query = supa
+    .from("articles")
+    .select("*", { count: "exact" })
+    .eq("status", "published")
+    .lt("published_at", cutoff)
+    .order("published_at", { ascending: false });
+
+  if (args.topicSlug) query = query.eq("topic_slug", args.topicSlug);
+  const limit = args.limit ?? 24;
+  const offset = args.offset ?? 0;
+  query = query.range(offset, offset + limit - 1);
+
+  const { data, error, count } = await query;
+  if (error) throw error;
+
+  const articles = (data ?? []) as Article[];
+  if (articles.length === 0) return { articles: [], total: count ?? 0 };
+
+  const [authors, topics] = await Promise.all([listAuthors(), listTopics()]);
+  const authorMap = new Map(authors.map((a) => [a.id, a]));
+  const topicMap = new Map(topics.map((t) => [t.slug, t]));
+
+  const withRefs = articles
+    .map((a) => {
+      const author = authorMap.get(a.author_id);
+      const topic = topicMap.get(a.topic_slug);
+      if (!author || !topic) return null;
+      return { ...a, author, topic } as ArticleWithAuthor;
+    })
+    .filter((a): a is ArticleWithAuthor => a !== null);
+
+  return { articles: withRefs, total: count ?? withRefs.length };
+}
+
 export async function countRecentArticles(
   topicSlug: string,
   sinceHours: number,

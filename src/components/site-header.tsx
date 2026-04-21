@@ -30,6 +30,12 @@ export async function SiteHeader() {
                 {t.name}
               </Link>
             ))}
+            <Link
+              href="/archive"
+              className="px-2.5 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+              Archive
+            </Link>
           </nav>
           <div className="flex items-center gap-1">
             <ThemeToggle />
