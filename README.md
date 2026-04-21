@@ -142,6 +142,33 @@ curl -X POST \
   articles in the last 24 hours, so re-running `/api/generate` on a schedule
   is cheap and safe.
 
+### Scheduled runs
+
+Bylines ships with a Vercel Cron config that keeps the site fresh without
+bursty spikes of xAI traffic:
+
+- [`vercel.json`](./vercel.json) calls `GET /api/generate?schedule=1` on
+  `0 */2 * * *` &mdash; once every two hours, on the hour, UTC.
+- In scheduled mode the endpoint picks **one** topic based on the current UTC
+  slot and writes **one** article for it. With six topics on a two-hour
+  cadence, every beat is serviced twice per day, roughly 12 hours apart.
+- A rolling **24-hour cap of 2 articles per topic** is enforced by
+  `generateOnSchedule`, so extra / manual cron hits are safe no-ops. The cap
+  is tunable via `?daily_cap=N` (1&ndash;6).
+- Requests from Vercel Cron are auto-authorized via the `x-vercel-cron`
+  header, so the cron entry doesn't need to embed `GENERATE_SECRET`. Manual
+  callers still need `Authorization: Bearer $GENERATE_SECRET` (or
+  `?secret=...`) when the secret is set.
+
+You can exercise the schedule logic locally with:
+
+```bash
+curl -X POST "http://localhost:3000/api/generate?schedule=1"
+```
+
+The response includes the topic that was picked for the current slot and how
+many articles were written (`0` if the cap was already hit).
+
 ### Health check
 
 ```
@@ -158,6 +185,7 @@ for uptime monitors and for confirming that your environment is wired up.
 | `/`                      | Homepage. Lead + featured grid + per-topic sections.     |
 | `/topic/[slug]`          | All articles in a beat, with a 24h / week / month switch. |
 | `/article/[slug]`        | Article page with sources, tags, and related stories.    |
+| `/archive`               | Everything older than 30 days, paginated and filterable. |
 | `/about`                 | How Bylines works + the columnist roster.                |
 | `/sitemap.xml`           | Auto-generated from Supabase.                            |
 | `/api/generate`          | Kicks off a generation run (secured).                    |
@@ -199,9 +227,10 @@ supabase/
   `runtime = "nodejs"` and `maxDuration = 300` seconds.
 - Set **all** env vars in your host's dashboard. `SUPABASE_SERVICE_ROLE_KEY`
   is a secret &mdash; never ship it to the client.
-- A typical production setup: a Vercel Cron hitting
-  `POST /api/generate?count=2` every few hours with the shared secret in the
-  `Authorization` header.
+- `vercel.json` wires up a cron that hits `/api/generate?schedule=1` every
+  two hours. Vercel's built-in cron signing is trusted automatically, so no
+  additional secret wiring is needed there; manual callers still use
+  `GENERATE_SECRET`.
 - The `/` and `/topic/[slug]` pages are server-rendered on each request;
   `/article/[slug]` uses `revalidate = 120` (ISR) and pre-renders the 100
   most recent slugs at build time.
@@ -230,8 +259,8 @@ supabase/
 - Author-level feeds and reader-followable columnists.
 - A mixed-topic personal dashboard and reading queue.
 - Server-sent events for live generation progress on the admin side.
-- Scheduled cron keeping each beat fresh every few hours by default.
 - Better model-disclosure UI: "last researched at", "sources freshness", etc.
+- Year-based archive drill-down (`/archive/2026` etc.) once volume warrants.
 
 ## License
 

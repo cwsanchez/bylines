@@ -104,8 +104,16 @@ export default async function AboutPage() {
             accounts, and no personalization yet.
           </li>
           <li>
-            New stories are generated on a schedule and when the database is
-            empty. You can also trigger a run by calling{" "}
+            A scheduler runs every two hours and rotates through the beats,
+            producing two fresh stories per topic per day. After 30 days,
+            stories roll off the home page into the{" "}
+            <a href="/archive" className="underline underline-offset-4">
+              archive
+            </a>
+            , where they stay browsable forever.
+          </li>
+          <li>
+            You can also trigger a run by calling{" "}
             <code className="px-1 py-0.5 rounded bg-muted text-xs">
               /api/generate
             </code>

@@ -52,6 +52,13 @@ export function MobileNav({ topics }: { topics: Topic[] }) {
                 </Link>
               ))}
               <Link
+                href="/archive"
+                className="px-3 py-2 rounded-md text-sm hover:bg-accent"
+                onClick={() => setOpen(false)}
+              >
+                Archive
+              </Link>
+              <Link
                 href="/about"
                 className="px-3 py-2 rounded-md text-sm hover:bg-accent"
                 onClick={() => setOpen(false)}

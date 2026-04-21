@@ -373,3 +373,90 @@ export async function generateAll(
   }
   return out;
 }
+
+/**
+ * Pick which topic a given cron tick should service.
+ *
+ * The site runs one cron tick every `slotHours` hours (default 2). Across a
+ * 24h day that yields `24 / slotHours` slots. We cycle through topics by slot
+ * so that every topic gets the same number of runs per day, spaced as far
+ * apart as possible. With 6 topics on a 2h cadence, each topic gets two runs
+ * ~12 hours apart, for a natural 2-per-topic-per-day throughput.
+ */
+export function pickTopicForSlot(
+  topics: Topic[],
+  now: Date = new Date(),
+  slotHours = 2,
+): Topic | null {
+  if (topics.length === 0) return null;
+  const slot = Math.floor(now.getUTCHours() / slotHours);
+  const sorted = [...topics].sort((a, b) => {
+    if (a.display_order !== b.display_order) {
+      return a.display_order - b.display_order;
+    }
+    return a.slug.localeCompare(b.slug);
+  });
+  return sorted[slot % sorted.length];
+}
+
+export interface ScheduleOptions {
+  /** Max articles per topic in any rolling 24h window. Defaults to 2. */
+  dailyCapPerTopic?: number;
+  /** Articles produced per tick (kept at 1 so each cron invocation is tiny). */
+  perTick?: number;
+  /** Override "now" for tests. */
+  now?: Date;
+  /** Cadence between ticks, in hours. Must match the external cron schedule. */
+  slotHours?: number;
+  signal?: AbortSignal;
+}
+
+/**
+ * Run one scheduled tick: pick the topic assigned to this slot and, if it
+ * hasn't already hit its 24h cap, generate a single article for it.
+ *
+ * Designed to be called by a cron every `slotHours` (default 2) hours.
+ * Safe to call more often — the 24h cap makes extra calls no-ops.
+ */
+export async function generateOnSchedule(
+  opts: ScheduleOptions = {},
+): Promise<GeneratedSummary & { picked: string | null }> {
+  const dailyCap = opts.dailyCapPerTopic ?? 2;
+  const perTick = Math.max(1, opts.perTick ?? 1);
+  const now = opts.now ?? new Date();
+  const slotHours = opts.slotHours ?? 2;
+
+  const topics = await listTopics();
+  const topic = pickTopicForSlot(topics, now, slotHours);
+  if (!topic) {
+    return {
+      topic: "",
+      attempted: 0,
+      created: 0,
+      skipped: [],
+      errors: [],
+      picked: null,
+    };
+  }
+
+  const fresh = await countRecentArticles(topic.slug, 24);
+  const room = Math.max(0, dailyCap - fresh);
+  if (room === 0) {
+    return {
+      topic: topic.slug,
+      attempted: 0,
+      created: 0,
+      skipped: [`24h cap reached (${fresh}/${dailyCap})`],
+      errors: [],
+      picked: topic.slug,
+    };
+  }
+
+  const count = Math.min(perTick, room);
+  const result = await generateForTopic({
+    topicSlug: topic.slug,
+    count,
+    signal: opts.signal,
+  });
+  return { ...result, picked: topic.slug };
+}
