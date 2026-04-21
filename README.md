@@ -1,38 +1,50 @@
 # Bylines
 
-Bylines is an experimental news site where **every article is written by
-Grok**, the large language model from xAI. There are no human reporters and no
-human editors. A small pipeline:
+**Bylines** is an experimental news site where **every article is written by
+[Grok](https://x.ai)**, the large language model from xAI. There are no human
+reporters and no human editors &mdash; just a small, transparent pipeline:
 
-1. Picks the most important, distinct stories in each beat (tech, US
-   politics, world, games, sports, science) using Grok's `x_search` and
-   `web_search` tools.
-2. Assigns each story to a named "columnist" persona – neutral wire reporter,
-   center-left explainer, moderate-interventionist conservative, a mild
-   both-sider, a features writer, an analytical tech critic – and asks Grok
-   to draft the article in that voice.
-3. Saves the article, a dek, a hero summary, tags, and a full list of X-post
-   and web sources to Supabase.
+1. **Find the news.** For each beat (tech, US politics, world, games, sports,
+   science), Grok is prompted to pick the most important, distinct stories of
+   the last ~48 hours using its `x_search` and `web_search` tools.
+2. **Assign a voice.** Each story is routed to one of a fixed roster of
+   named "columnist" personas &mdash; a neutral wire reporter, a center-left
+   explainer, a moderate-interventionist conservative, a mild both-sider, a
+   features writer, an analytical tech critic.
+3. **Draft and source it.** Grok writes the article in that voice (500&ndash;900
+   words), with a dek, a homepage hero summary, tags, and a structured list of
+   every X post and web page it cited.
+4. **Publish.** The article is saved to Supabase with row-level security, and
+   the public Next.js site reads straight from the database.
 
-The site you browse is a plain Next.js app that reads from that Supabase
-database. Articles list every source they leaned on, so readers can verify
-(or go straight to the original posts on X).
+Every article page shows the full list of sources it leaned on, so readers can
+verify (or go straight to the original posts on X).
+
+> **Status:** early first draft. No accounts, no comments, no personalization.
+> The focus right now is getting the reading experience and the pipeline's
+> honesty right.
 
 ## Tech stack
 
-- **Next.js 15 (App Router), React 19, Tailwind CSS** for the reading
-  experience. Light and dark mode, serif display type, sans for UI.
-- **Supabase Postgres** (`topics`, `authors`, `articles`,
-  `generation_runs`) with RLS that only exposes published articles to the
-  public.
-- **xAI Responses API** (`grok-4-fast-reasoning` by default) with
-  `x_search` and `web_search` tools and strict JSON-schema output.
-- **sanitize-html + marked** for rendering Grok's Markdown safely.
+| Layer       | Choice                                                         |
+| ----------- | -------------------------------------------------------------- |
+| Framework   | **Next.js 15** (App Router), **React 19**                      |
+| Styling     | **Tailwind CSS**, light/dark mode, serif display + sans UI     |
+| Database    | **Supabase Postgres** with row-level security                  |
+| AI          | **xAI Responses API** (`grok-4-fast-reasoning` by default)     |
+| Search      | xAI's `x_search` + `web_search` tools (live, with citations)   |
+| Markdown    | `marked` + `sanitize-html` (model output is never trusted raw) |
+| Icons       | `lucide-react`                                                 |
+| Deployment  | Any Node.js host; designed for Vercel + Supabase               |
 
-There is no user system yet, by design – this is the "first draft" of the
-site, focused on getting the reading experience right.
+Grok is called with a strict JSON schema so the output we persist is already
+shape-checked. Citations from tool calls are captured and merged into the
+article's `sources` list.
 
 ## Running locally
+
+Prerequisites: **Node.js 20+**, an xAI API key with `web_search` + `x_search`
+tools enabled, and a Supabase project.
 
 ```bash
 cp .env.example .env.local
@@ -41,81 +53,186 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. Until you seed some articles, the home page
-will show an empty state.
+Open [`http://localhost:3000`](http://localhost:3000). Until you seed some
+articles, the home page will show an empty state with a hint to run the
+generator.
 
-## Seeding / generating articles
+### Environment variables
+
+All variables live in `.env.local`. See [`.env.example`](./.env.example) for
+the full list. Quick reference:
+
+| Variable                          | Purpose                                                  |
+| --------------------------------- | -------------------------------------------------------- |
+| `XAI_API_KEY`                     | xAI key used for research + writing.                     |
+| `XAI_MODEL`                       | Optional model override. Default `grok-4-fast-reasoning`. |
+| `XAI_RESPONSES_URL`               | Optional override for the Responses endpoint.            |
+| `NEXT_PUBLIC_SUPABASE_URL`        | Supabase project URL (used client-side for reads).       |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY`   | Supabase anon key (RLS restricts to published articles). |
+| `SUPABASE_SERVICE_ROLE_KEY`       | Server-only; used for writes in the generator.           |
+| `GENERATE_SECRET`                 | Optional shared secret for `/api/generate`.              |
+| `NEXT_PUBLIC_SITE_URL`            | Used by `sitemap.xml`. Optional in dev.                  |
+
+If `GENERATE_SECRET` is unset, the generate endpoint is open &mdash; fine for
+local dev, **set it in production**.
+
+### Database
+
+The schema lives in [`supabase/schema.sql`](./supabase/schema.sql) and is safe
+to re-apply: every statement is `if not exists` / idempotent. Two ways to
+install it:
+
+1. Paste the contents into the Supabase SQL editor and run.
+2. Or, against any Postgres with the Supabase extensions available:
+
+   ```bash
+   psql "$SUPABASE_DB_URL" < supabase/schema.sql
+   ```
+
+The four tables are:
+
+- **`topics`** &mdash; curated beat list: tech, us-politics, world, games,
+  sports, science (seed rows live in the app / your own fixtures).
+- **`authors`** &mdash; the named personas Grok writes as. Each has a
+  `persona_prompt` spliced into the system message at write time.
+- **`articles`** &mdash; the main content table. `sources` is JSON of
+  `{ type: "x" | "web", url, title?, handle?, quote? }`.
+- **`generation_runs`** &mdash; audit trail of every pipeline run.
+
+Row-level security is enabled on every table. Reads are limited to
+`status = 'published'`; writes only go through the service role key on the
+server.
+
+## Generating articles
 
 There are two ways to run the pipeline:
 
-1. **Via the CLI** (great for local seeding):
+### 1. CLI (local seeding)
 
-   ```bash
-   # 3 articles per topic, across all topics
-   npm run generate -- --count=3
+```bash
+# 3 articles per topic, across all topics
+npm run generate -- --count=3
 
-   # Just one topic
-   npm run generate -- --topic=science --count=2
-   ```
+# Just one topic
+npm run generate -- --topic=science --count=2
+```
 
-2. **Via the API** (great for cron / scheduled jobs):
+The CLI requires `XAI_API_KEY` and the Supabase service role key; it loads
+`.env.local` automatically via `dotenv`.
 
-   ```bash
-   curl -X POST \
-     -H "Authorization: Bearer $GENERATE_SECRET" \
-     "https://your-host/api/generate?count=2&topic=tech"
-   ```
+### 2. HTTP API (cron / serverless)
 
-   `GET /api/status` returns counts per topic and the timestamp of the most
-   recently published article – handy for a health check.
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $GENERATE_SECRET" \
+  "https://your-host/api/generate?count=2&topic=tech"
+```
 
-The generator is idempotent-ish: before running, it looks at the last
-week's titles and asks Grok to avoid duplicates. `generateAll` also skips
-any topic that already has the target number of articles in the last 24
-hours, so running the endpoint multiple times a day is safe and cheap.
+- `GET /api/generate` works too; both methods accept the same query params.
+- `count` is clamped to `1..6`. Omitting `topic` runs every topic in
+  sequence.
+- The endpoint is `nodejs` runtime with `maxDuration = 300` &mdash; plenty of
+  room for a multi-topic run on Vercel Pro, but watch your platform's limits.
 
-## Database
+### Idempotency
 
-The schema lives in Supabase and was applied via the MCP migrations in
-`supabase_migrations` (Supabase project: `pulse-news` /
-`vrjwtnrwktckrawdanra`). The four tables are:
+- Before picking stories, the generator reads the last week of titles in the
+  target topic and asks Grok to avoid near-duplicates.
+- `generateAll` **skips** any topic that already has the target number of
+  articles in the last 24 hours, so re-running `/api/generate` on a schedule
+  is cheap and safe.
 
-- `topics` – curated beat list: tech, us-politics, world, games, sports,
-  science.
-- `authors` – the set of named personas Grok writes as. Each has a
-  `persona_prompt` that is spliced into the system message at write time.
-- `articles` – the main content table. `sources` is JSON of `{type: "x" |
-  "web", url, title?, handle?, quote?}`.
-- `generation_runs` – audit trail of every pipeline run.
+### Health check
 
-Row-level security is enabled on all tables. Reads are limited to published
-articles; writes only go through the service role key on the server.
+```
+GET /api/status
+```
 
-## Layout
+Returns `{ has_grok, has_supabase, counts, latest_published_at }` &mdash; handy
+for uptime monitors and for confirming that your environment is wired up.
 
-- `src/app` – Next.js App Router. Home (`/`), topic pages
-  (`/topic/[slug]`), articles (`/article/[slug]`), the about page, and two
-  API routes under `/api`.
-- `src/components` – the site header, footer, theme toggle, article card,
-  timeframe switch, topic rail, author avatar.
-- `src/lib/xai.ts` – a thin wrapper around the xAI Responses API with
-  strict JSON-schema output and citation extraction.
-- `src/lib/generator.ts` – the two-phase generation pipeline
-  (`findTopStories` → `writeArticle`) and `generateForTopic` /
-  `generateAll` orchestrators.
-- `src/lib/articles.ts` – all Supabase access for reads + writes.
-- `scripts/generate.ts` – CLI entrypoint used by `npm run generate`.
+## Routes
 
-## Notes / caveats
+| Route                    | What it is                                               |
+| ------------------------ | -------------------------------------------------------- |
+| `/`                      | Homepage. Lead + featured grid + per-topic sections.     |
+| `/topic/[slug]`          | All articles in a beat, with a 24h / week / month switch. |
+| `/article/[slug]`        | Article page with sources, tags, and related stories.    |
+| `/about`                 | How Bylines works + the columnist roster.                |
+| `/sitemap.xml`           | Auto-generated from Supabase.                            |
+| `/api/generate`          | Kicks off a generation run (secured).                    |
+| `/api/status`            | JSON health + per-topic counts.                          |
 
-- AI models can still hallucinate. Every article shows its sources; when in
-  doubt, trust the primary source over the article. If you spot something
-  wrong, please open an issue.
-- This is a minimal first draft. Future ideas: author-level feeds, mixed
-  topic dashboards, a personal reading queue, server-sent events for live
-  generation progress, and a scheduled cron that keeps each beat fresh
-  every few hours.
+## Project layout
+
+```
+src/
+  app/                Next.js App Router pages + API routes.
+    page.tsx          Homepage.
+    topic/[slug]      Per-topic pages with a timeframe switch.
+    article/[slug]    Article detail with sources + related.
+    about/            Static about page pulling live author list.
+    api/generate      POST/GET entrypoint to the pipeline.
+    api/status        Lightweight JSON health + counts.
+    sitemap.ts        Dynamic sitemap from Supabase.
+  components/         Header, footer, theme toggle, cards, rail, switch.
+  lib/
+    xai.ts            Thin wrapper over xAI Responses API (JSON-schema + citations).
+    generator.ts      Two-phase pipeline: findTopStories -> writeArticle + orchestrators.
+    articles.ts       All Supabase reads/writes for topics, authors, articles.
+    authors.ts        Deterministic-but-varied author selection per topic/title.
+    markdown.ts       sanitize-html + marked pipeline for Grok's Markdown.
+    supabase.ts       Service + anon Supabase client factories.
+    env.ts            Centralized env var access.
+    types.ts          Shared Topic / Author / Article types.
+    utils.ts          Small helpers (timeAgo, classNames, etc).
+scripts/
+  generate.ts         CLI entrypoint used by `npm run generate`.
+supabase/
+  schema.sql          Full database schema, idempotent.
+```
+
+## Deployment notes
+
+- Bylines is designed to deploy to **Vercel + Supabase** with no extra
+  infrastructure, but any Node 20+ host works. The generate endpoint sets
+  `runtime = "nodejs"` and `maxDuration = 300` seconds.
+- Set **all** env vars in your host's dashboard. `SUPABASE_SERVICE_ROLE_KEY`
+  is a secret &mdash; never ship it to the client.
+- A typical production setup: a Vercel Cron hitting
+  `POST /api/generate?count=2` every few hours with the shared secret in the
+  `Authorization` header.
+- The `/` and `/topic/[slug]` pages are server-rendered on each request;
+  `/article/[slug]` uses `revalidate = 120` (ISR) and pre-renders the 100
+  most recent slugs at build time.
+
+## Scripts
+
+| Script                    | What it does                                           |
+| ------------------------- | ------------------------------------------------------ |
+| `npm run dev`             | Next.js dev server on `localhost:3000`.                |
+| `npm run build`           | Production build.                                      |
+| `npm run start`           | Serve a production build.                              |
+| `npm run lint`            | ESLint with `eslint-config-next`.                      |
+| `npm run generate -- ...` | Run the generation pipeline locally (see above).       |
+
+## Caveats
+
+- **AI models still hallucinate.** Every article shows its sources &mdash;
+  when in doubt, trust the primary source over the article. If you spot
+  something wrong, please open an issue.
+- **The columnists are not real people.** They are stable personas Grok is
+  prompted to write as; any byline is "Grok writing as &lt;name&gt;".
+- This is a minimal first draft. Rough edges are expected.
+
+## Roadmap ideas
+
+- Author-level feeds and reader-followable columnists.
+- A mixed-topic personal dashboard and reading queue.
+- Server-sent events for live generation progress on the admin side.
+- Scheduled cron keeping each beat fresh every few hours by default.
+- Better model-disclosure UI: "last researched at", "sources freshness", etc.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT. See [`LICENSE`](./LICENSE).
