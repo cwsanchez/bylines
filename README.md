@@ -1,213 +1,121 @@
-# Pulse
+# Bylines
 
-**A calmer, smarter news reader powered by X and Grok.**
+Bylines is an experimental news site where **every article is written by
+Grok**, the large language model from xAI. There are no human reporters and no
+human editors. A small pipeline:
 
-Pulse is a premium dark-mode news dashboard that turns verified X posts into a clean, scannable daily briefing. It feels like a proper news product: pods open into rich in-app modals with full content, inline media, and AI-generated key takeaways. "Open on X" is always one click away, but you never _have_ to leave Pulse to consume the news.
+1. Picks the most important, distinct stories in each beat (tech, US
+   politics, world, games, sports, science) using Grok's `x_search` and
+   `web_search` tools.
+2. Assigns each story to a named "columnist" persona – neutral wire reporter,
+   center-left explainer, moderate-interventionist conservative, a mild
+   both-sider, a features writer, an analytical tech critic – and asks Grok
+   to draft the article in that voice.
+3. Saves the article, a dek, a hero summary, tags, and a full list of X-post
+   and web sources to Supabase.
 
-![Pulse](docs/screenshots/pulse-hero.png)
-<!-- Add your own screenshots under docs/screenshots/. Placeholders below. -->
-
-## Highlights
-
-- **Beautiful dark-first reading experience.** Masonry grids, carefully tuned typography, and live-pulse indicators that feel alive without being noisy.
-- **Always-on core sections** — International, National (US), Foreign Policy, Cybersecurity, Tech News, Science.
-- **50 US state sections**, lazy-added from a searchable modal. Every state has a hand-tuned X query blending local outlets and place names.
-- **Rich pod modal.** Full post text, all attached media, per-post Grok key takeaways, and a section-wide editorial brief. Primary CTA is "Read full article"; "Open on X" is secondary.
-- **Grok summaries** using `grok-4-1-fast-reasoning`. Summaries regenerate only when the underlying tweet set changes (content-hash cache).
-- **Durable caching** via Supabase (or in-memory fallback), tunable TTL, and graceful error handling.
-- **Timeframe switcher** per section: 6h / 24h / 72h (default 24h).
-- **Drag-and-drop sidebar reordering**, with everything persisted to `localStorage` — no account required.
-- **Fully responsive**, mobile-first, with skeleton loading and subtle animations.
-- **Demo mode** out of the box: run with zero credentials and Pulse still looks and feels real, using deterministic sample posts.
+The site you browse is a plain Next.js app that reads from that Supabase
+database. Articles list every source they leaned on, so readers can verify
+(or go straight to the original posts on X).
 
 ## Tech stack
 
-- [Next.js 15](https://nextjs.org/) (App Router) + TypeScript
-- [Tailwind CSS](https://tailwindcss.com/) + [shadcn/ui](https://ui.shadcn.com/)-style components + [lucide-react](https://lucide.dev/)
-- [Supabase](https://supabase.com/) (Postgres) for durable caching
-- [X API v2](https://developer.x.com/en/docs/x-api) (Bearer Token, read-only)
-- [xAI Grok API](https://docs.x.ai/) for summaries and takeaways
-- Vitest + Testing Library, Playwright for E2E
+- **Next.js 15 (App Router), React 19, Tailwind CSS** for the reading
+  experience. Light and dark mode, serif display type, sans for UI.
+- **Supabase Postgres** (`topics`, `authors`, `articles`,
+  `generation_runs`) with RLS that only exposes published articles to the
+  public.
+- **xAI Responses API** (`grok-4-fast-reasoning` by default) with
+  `x_search` and `web_search` tools and strict JSON-schema output.
+- **sanitize-html + marked** for rendering Grok's Markdown safely.
 
-## Quick start
+There is no user system yet, by design – this is the "first draft" of the
+site, focused on getting the reading experience right.
+
+## Running locally
 
 ```bash
-# 1. Install
-npm install
-
-# 2. Copy env template and fill in whatever you have
 cp .env.example .env.local
-
-# 3. Run (works with ZERO credentials — demo data loads automatically)
+# fill in XAI_API_KEY + SUPABASE_* values
+npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). If you haven't configured `X_BEARER_TOKEN`, Pulse shows a subtle banner and runs on curated sample posts.
+Open `http://localhost:3000`. Until you seed some articles, the home page
+will show an empty state.
 
-### Configuring live data
+## Seeding / generating articles
 
-Add the following to `.env.local`:
+There are two ways to run the pipeline:
 
-```dotenv
-X_BEARER_TOKEN=...            # required for live posts
-XAI_API_KEY=...               # required for Grok summaries
-XAI_MODEL=grok-4-1-fast-reasoning
+1. **Via the CLI** (great for local seeding):
 
-# Optional — enables durable cross-deploy caching
-SUPABASE_URL=...
-SUPABASE_SERVICE_ROLE_KEY=...
-CACHE_TTL_MINUTES=20
-```
+   ```bash
+   # 3 articles per topic, across all topics
+   npm run generate -- --count=3
 
-The X token is only ever used server-side. All secrets are read from `src/lib/env.ts`; no key ever reaches the browser.
+   # Just one topic
+   npm run generate -- --topic=science --count=2
+   ```
 
-### Supabase schema
+2. **Via the API** (great for cron / scheduled jobs):
 
-If you're using Supabase, apply the schema once:
+   ```bash
+   curl -X POST \
+     -H "Authorization: Bearer $GENERATE_SECRET" \
+     "https://your-host/api/generate?count=2&topic=tech"
+   ```
 
-```bash
-psql "$SUPABASE_DB_URL" < supabase/schema.sql
-# or paste supabase/schema.sql into the Supabase SQL editor
-```
+   `GET /api/status` returns counts per topic and the timestamp of the most
+   recently published article – handy for a health check.
 
-Two tables are created:
+The generator is idempotent-ish: before running, it looks at the last
+week's titles and asks Grok to avoid duplicates. `generateAll` also skips
+any topic that already has the target number of articles in the last 24
+hours, so running the endpoint multiple times a day is safe and cheap.
 
-| Table        | Purpose                                                  |
-| ------------ | -------------------------------------------------------- |
-| `posts`      | Cached X results per `(section_id, timeframe)`           |
-| `summaries`  | Grok-generated overview + themes + per-post takeaways    |
+## Database
 
-Row-level security is enabled by default; both tables are read/written only by the server using the service-role key.
+The schema lives in Supabase and was applied via the MCP migrations in
+`supabase_migrations` (Supabase project: `pulse-news` /
+`vrjwtnrwktckrawdanra`). The four tables are:
 
-## Project structure
+- `topics` – curated beat list: tech, us-politics, world, games, sports,
+  science.
+- `authors` – the set of named personas Grok writes as. Each has a
+  `persona_prompt` that is spliced into the system message at write time.
+- `articles` – the main content table. `sources` is JSON of `{type: "x" |
+  "web", url, title?, handle?, quote?}`.
+- `generation_runs` – audit trail of every pipeline run.
 
-```
-src/
-  app/
-    api/feed/route.ts        # GET /api/feed?section=…&timeframe=…
-    layout.tsx
-    page.tsx                 # Preloads first two core sections
-    globals.css
-  components/
-    pulse/                   # All Pulse-specific UI
-      app.tsx                # Client-side orchestrator (state, persistence)
-      header.tsx
-      sidebar.tsx            # Draggable, "Add State" modal
-      section-block.tsx      # Section header, Grok briefing, masonry pods
-      news-pod.tsx           # Individual card
-      post-modal.tsx         # Rich in-app reader
-      settings-dialog.tsx
-    ui/                      # shadcn-style primitives (button, dialog, …)
-  lib/
-    env.ts                   # Typed environment access + demo-mode helpers
-    sections.ts              # Core + 50 states with optimized queries
-    x-api.ts                 # X API v2 recent search + normalization
-    grok.ts                  # xAI chat completions + hashing
-    feed-service.ts          # Cache-aware fetch + summary orchestration
-    supabase.ts              # Service-role client
-    demo-data.ts             # Deterministic demo feeds for zero-config runs
-    storage.ts               # localStorage helpers
-    types.ts
-    utils.ts
-supabase/
-  schema.sql
-tests/
-  unit/                      # Vitest
-  e2e/                       # Playwright
-```
+Row-level security is enabled on all tables. Reads are limited to published
+articles; writes only go through the service role key on the server.
 
-## Adding a new section
+## Layout
 
-### A core section
+- `src/app` – Next.js App Router. Home (`/`), topic pages
+  (`/topic/[slug]`), articles (`/article/[slug]`), the about page, and two
+  API routes under `/api`.
+- `src/components` – the site header, footer, theme toggle, article card,
+  timeframe switch, topic rail, author avatar.
+- `src/lib/xai.ts` – a thin wrapper around the xAI Responses API with
+  strict JSON-schema output and citation extraction.
+- `src/lib/generator.ts` – the two-phase generation pipeline
+  (`findTopStories` → `writeArticle`) and `generateForTopic` /
+  `generateAll` orchestrators.
+- `src/lib/articles.ts` – all Supabase access for reads + writes.
+- `scripts/generate.ts` – CLI entrypoint used by `npm run generate`.
 
-1. Open `src/lib/sections.ts`.
-2. Add a new entry to `CORE_SECTIONS` with a stable `id`, a display `name`, and a tuned X search `query`. Queries are automatically wrapped with shared modifiers (`-is:retweet -is:reply -is:nullcast lang:en ...`).
-3. That's it — the UI, API, cache, and Grok layer all key off the id. No DB migration required.
+## Notes / caveats
 
-```ts
-{
-  id: "markets",
-  name: "Markets",
-  tagline: "Equities, bonds, macro",
-  group: "core",
-  glyph: "📈",
-  query: buildQuery(
-    `(${fromList(["WSJmarkets", "business", "FT", "Reuters"])}) OR ("market" OR "S&P 500" OR yields)`,
-  ),
-}
-```
-
-### A new state
-
-States are defined in the same file via `STATE_DEFS`. If one is missing, add `{ slug, name, abbr, outlets, extra }` and the rest is auto-generated.
-
-## Testing
-
-```bash
-# Unit tests (utilities + configs + demo data)
-npm test
-
-# Full E2E (headless Chromium, desktop + mobile)
-npm run test:e2e
-```
-
-The E2E suite covers:
-
-- Loading core sections and rendering news pods
-- Expanding the Grok briefing
-- Opening the rich pod modal, checking that "Read full article" and "Open on X" are present
-- Opening on X (link / target validation)
-- Adding a new US state section
-- Timeframe switching widens the post count (24h → 72h)
-- Mobile rendering + modal interaction
-
-Playwright runs with `FORCE_DEMO=1` so tests are deterministic — they never make real API calls.
-
-## Security & privacy
-
-- **No user accounts.** Pulse stores preferences (visible sections, order, collapsed summaries, timeframe, theme, last-visit) in `localStorage` only.
-- **All external APIs are called server-side.** `X_BEARER_TOKEN` and `XAI_API_KEY` never leave the Node runtime.
-- **No tracking.** Pulse does not include analytics, cookies, or beacons. Open the Network tab and verify.
-- **Supabase RLS is enabled by default.** The two cache tables are only reachable by the service role.
-- **Responsible sourcing.** Queries prefer verified accounts and original (non-reply, non-retweet) posts, but you should still apply your own editorial judgment to anything surfaced by social signals.
-
-## Legal / attribution
-
-Pulse is an **open-source, personal news reader**. All original content belongs to its creators. Pulse:
-
-- aggregates **publicly available** X posts via the official API,
-- generates short AI summaries for convenience,
-- links back to X for every post, and
-- does **not** claim ownership of any post, image, or video.
-
-Pulse is not affiliated with, endorsed by, or sponsored by X Corp. or xAI. Trademarks belong to their respective owners. Use responsibly and review X's Developer Agreement + Policy before deploying publicly.
-
-## Deployment
-
-Pulse deploys cleanly to [Vercel](https://vercel.com/):
-
-1. Import the repo.
-2. Add `X_BEARER_TOKEN`, `XAI_API_KEY`, and (optionally) Supabase env vars in Project → Settings → Environment Variables.
-3. Deploy — `/api/feed` runs on the Node runtime, `/` is dynamically rendered.
-
-### Environment variables (full list)
-
-| Variable | Required | Purpose |
-| --- | --- | --- |
-| `X_BEARER_TOKEN` | for live data | X API v2 Bearer token (read-only) |
-| `XAI_API_KEY` | for summaries | xAI Grok API key |
-| `XAI_MODEL` | no (default `grok-4-1-fast-reasoning`) | Grok model slug |
-| `SUPABASE_URL` | no | Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | no | Service-role key (server only) |
-| `NEXT_PUBLIC_SUPABASE_URL` | no | Mirror of `SUPABASE_URL`, if reading client-side |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | no | Anon key, if you build read-only client features |
-| `CACHE_TTL_MINUTES` | no (default 20) | Cache window for feeds |
-| `FORCE_DEMO` | no | Set to `1` to force demo data regardless of tokens |
+- AI models can still hallucinate. Every article shows its sources; when in
+  doubt, trust the primary source over the article. If you spot something
+  wrong, please open an issue.
+- This is a minimal first draft. Future ideas: author-level feeds, mixed
+  topic dashboards, a personal reading queue, server-sent events for live
+  generation progress, and a scheduled cron that keeps each beat fresh
+  every few hours.
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
-
----
-
-<sub>Pulse is a personal news reader that aggregates publicly available X posts and generates AI summaries. All original content belongs to its creators. This project links back to X and does not claim ownership of any posts.</sub>
+MIT. See `LICENSE`.
