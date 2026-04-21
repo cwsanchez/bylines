@@ -1,6 +1,6 @@
--- Bylines schema. Apply with `psql < supabase/schema.sql` or from the
--- Supabase SQL editor. This mirrors the migrations applied via the
--- Supabase MCP during initial setup.
+-- Bylines schema. Apply with `psql "$SUPABASE_DB_URL" < supabase/schema.sql`
+-- or by pasting it into the Supabase SQL editor. Every statement is
+-- idempotent (`if not exists` / policy guards), so it is safe to re-run.
 
 create table if not exists public.topics (
   slug          text primary key,
