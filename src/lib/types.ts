@@ -1,61 +1,51 @@
-export interface PulsePost {
-  /** Canonical X tweet id. */
+export interface Topic {
+  slug: string;
+  name: string;
+  description: string;
+  accent: string;
+  display_order: number;
+}
+
+export interface Author {
   id: string;
-  section_id: string;
-  author_handle: string;
-  author_name: string;
-  author_avatar?: string | null;
-  author_verified?: boolean;
-  text: string;
-  /** ISO timestamp. */
-  created_at: string;
-  /** First non-X link detected in the tweet (may be null). */
-  url?: string | null;
-  /** Permalink to the tweet on X. */
-  tweet_url: string;
-  media: PulseMedia[];
-  metrics: PulseMetrics;
-  fetched_at: string;
+  slug: string;
+  name: string;
+  handle: string;
+  bio: string;
+  style_tag: string;
+  persona_prompt: string;
+  avatar_hue: number;
 }
 
-export interface PulseMedia {
-  type: "photo" | "video" | "animated_gif";
+export interface ArticleSource {
+  type: "x" | "web";
   url: string;
-  preview_url?: string | null;
-  width?: number;
-  height?: number;
-  alt_text?: string | null;
+  title?: string;
+  handle?: string;
+  quote?: string;
 }
 
-export interface PulseMetrics {
-  like_count: number;
-  reply_count: number;
-  retweet_count: number;
-  quote_count: number;
-  impression_count?: number;
-}
-
-/** Grok-generated section summary + per-post key takeaways. */
-export interface PulseSummary {
-  section_id: string;
-  timeframe: string;
-  overview: string;
-  themes: string[];
-  /** Map of tweet_id -> array of short bullet strings. */
-  takeaways: Record<string, string[]>;
-  generated_at: string;
-  /** Hash of input tweet ids; lets us decide whether to regenerate. */
-  input_hash: string;
-}
-
-export interface SectionFeed {
-  section_id: string;
-  timeframe: string;
-  posts: PulsePost[];
-  summary: PulseSummary | null;
+export interface Article {
+  id: string;
+  slug: string;
+  topic_slug: string;
+  author_id: string;
+  title: string;
+  dek: string;
+  body_md: string;
+  hero_summary: string;
+  tags: string[];
+  sources: ArticleSource[];
+  reading_time_min: number;
+  model: string;
+  status: "published" | "draft";
+  published_at: string;
   updated_at: string;
-  /** True when served from cache; false when freshly fetched. */
-  cached: boolean;
-  /** Optional demo flag when running without credentials. */
-  demo?: boolean;
 }
+
+export interface ArticleWithAuthor extends Article {
+  author: Author;
+  topic: Topic;
+}
+
+export type Timeframe = "24h" | "week" | "month";

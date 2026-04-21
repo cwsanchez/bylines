@@ -6,10 +6,8 @@ const config: Config = {
   theme: {
     container: {
       center: true,
-      padding: "2rem",
-      screens: {
-        "2xl": "1400px",
-      },
+      padding: "1.25rem",
+      screens: { "2xl": "1200px" },
     },
     extend: {
       colors: {
@@ -46,10 +44,6 @@ const config: Config = {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
-        pulse: {
-          DEFAULT: "hsl(var(--pulse))",
-          soft: "hsl(var(--pulse-soft))",
-        },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -58,30 +52,11 @@ const config: Config = {
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
-        display: ["var(--font-display)", "system-ui", "sans-serif"],
-      },
-      keyframes: {
-        "pulse-dot": {
-          "0%, 100%": { opacity: "1", transform: "scale(1)" },
-          "50%": { opacity: "0.6", transform: "scale(0.9)" },
-        },
-        "fade-in": {
-          from: { opacity: "0", transform: "translateY(4px)" },
-          to: { opacity: "1", transform: "translateY(0)" },
-        },
-        shimmer: {
-          "0%": { backgroundPosition: "-200% 0" },
-          "100%": { backgroundPosition: "200% 0" },
-        },
-      },
-      animation: {
-        "pulse-dot": "pulse-dot 1.8s ease-in-out infinite",
-        "fade-in": "fade-in 0.35s ease-out",
-        shimmer: "shimmer 2.4s linear infinite",
+        display: ['var(--font-display)', "ui-serif", "Georgia", "serif"],
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [],
 };
 
 export default config;
