@@ -104,9 +104,9 @@ export default async function AboutPage() {
             accounts, and no personalization yet.
           </li>
           <li>
-            A scheduler runs every two hours and rotates through the beats,
-            producing two fresh stories per topic per day. After 30 days,
-            stories roll off the home page into the{" "}
+            A scheduler runs every four hours and rotates through the beats,
+            producing roughly one fresh story per topic per day. After 30
+            days, stories roll off the home page into the{" "}
             <a href="/archive" className="underline underline-offset-4">
               archive
             </a>

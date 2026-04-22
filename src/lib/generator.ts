@@ -114,6 +114,27 @@ function isoHoursAgo(hours: number): string {
   return d.toISOString();
 }
 
+/**
+ * Lightweight, topic-aware editorial hints. Added to the prompt so Grok
+ * weights the right kind of "trending" signal per beat — e.g. for finance
+ * we care about market movers and earnings, not meme-coin drama.
+ */
+const TOPIC_STORY_GUIDANCE: Record<string, string> = {
+  tech: "Prefer reported launches, filings, funding rounds, outages, benchmarks, and credible scoops over punditry or vague 'AI is coming' takes. A good signal is that multiple reputable outlets (or official accounts) are covering it.",
+  "us-politics":
+    "Prefer votes, rulings, filings, official statements, and on-the-record reporting from established outlets (AP, Reuters, major national papers). Skip pure opinion pieces, partisan spin takes, and viral tweets without a reported backbone.",
+  world:
+    "Prefer official statements, election results, diplomatic actions, conflict updates, and reporting from wire services and established international outlets. Avoid rumor, unverified footage, and one-source claims.",
+  games:
+    "Prefer official studio/publisher announcements, launch news, earnings/layoff reports, platform moves, and credible leaks covered by more than one outlet. Skip review-bomb discourse and unsourced rumors.",
+  sports:
+    "Prefer confirmed results, signings, trades, injuries, suspensions, and standings-relevant news reported by established outlets or official team accounts. Skip rumor-mill tweets without reported backing.",
+  science:
+    "Prefer peer-reviewed findings, preprints with real engagement, agency announcements (NASA/ESA/NIH), and credible reporting of discoveries, launches, or policy shifts. Skip hype and single-source speculation.",
+  finance:
+    "Prefer market-moving and economy-shaping stories: Fed and central-bank actions, CPI/jobs/GDP prints, major earnings beats/misses, sector rotations, meaningful single-stock moves with a clear catalyst, M&A, IPOs, regulatory actions (SEC/DOJ), and credit/rates moves. Include at least one macro/markets-wide item if possible. Skip price-only tweets, pump-and-dump chatter, and retail-meme noise unless it is itself the story and multiple reputable outlets are covering it.",
+};
+
 export async function findTopStories(
   topic: Topic,
   count: number,
@@ -127,19 +148,25 @@ export async function findTopStories(
         .join("\n- ")}`
     : "";
 
-  const instructions = `You are the news desk editor for a site whose only writer is the Grok AI model. Your job: pick the ${count} most important, distinct stories in the "${topic.name}" beat from the past 48 hours.
+  const guidance = TOPIC_STORY_GUIDANCE[topic.slug] ?? "";
 
-Hard rules:
-- Each story must be genuinely newsworthy and distinct (no duplicates, no near-duplicates).
-- Skip gossip, memes, pure rumor, and pure opinion takes.
-- Prefer verifiable, reported events: launches, filings, votes, results, discoveries, incidents.
+  const instructions = `You are the news desk editor for a site whose only writer is the Grok AI model. Your job: pick the ${count} most important, genuinely trending, distinct stories in the "${topic.name}" beat from the past ~48 hours.
+
+How to pick:
+- Start by surveying what is actually moving on X AND the open web right now in this beat. Use x_search with recent dates, and web_search for coverage from reputable outlets and official sources. Cross-check that a story is real before suggesting it.
+- Rank by a blend of (a) newsworthiness and lasting impact, (b) how widely it is being reported / discussed right now across credible sources, and (c) whether there is concrete, reportable substance to write about (not just vibes).
+- Skip gossip, memes, pure rumor, pure opinion takes, promotional content, and stories that are already ~72h+ old unless there is a meaningful new development.
+- Prefer verifiable, reported events: launches, filings, votes, results, earnings, discoveries, incidents, official statements.
+- Spread the ${count} picks across different storylines. Do not pick two near-duplicates.
 - "search_query" should be a focused query a human could paste into X or Google to learn more.
 - Return ONLY the JSON specified by the schema.`;
 
-  const input = `Today is ${isoNow()}.
-Topic: ${topic.name} — ${topic.description}
+  const topicGuidance = guidance ? `\n\nBeat-specific guidance for "${topic.name}":\n${guidance}` : "";
 
-Use the x_search and web_search tools aggressively. Look at X (the social network formerly known as Twitter) and the open web. Consider posts from reputable outlets and official accounts.
+  const input = `Today is ${isoNow()}.
+Topic: ${topic.name} — ${topic.description}${topicGuidance}
+
+Use the x_search and web_search tools aggressively. Look at X (the social network formerly known as Twitter) and the open web. Favor reporting that multiple reputable outlets or official accounts are covering, or that is currently driving a substantial conversation on X with a verifiable underlying event.
 
 Return the ${count} best stories in this beat from the last ~48 hours, most important first.${avoidBlock}`;
 
@@ -377,12 +404,22 @@ export async function generateAll(
 /**
  * Pick which topic a given cron tick should service.
  *
- * The site runs one cron tick every `slotHours` hours (default 4). Across a
- * 24h day that yields `24 / slotHours` slots. We cycle through topics by slot
- * so that every topic gets the same number of runs per day, spaced as far
- * apart as possible. With 6 topics on a 4h cadence, each topic gets one run
- * per day, 24 hours apart — a natural 1-per-topic-per-day throughput that
- * still comfortably fits under the rolling 24h cap of 2 articles/topic.
+ * The site runs one cron tick every `slotHours` hours (default 4). We cycle
+ * through topics by the total number of slots elapsed since the Unix epoch,
+ * not by the slot-of-day, so every topic is reached regardless of how many
+ * topics exist or how many slots fit into a day.
+ *
+ * Examples:
+ *  - 6 topics on a 4h cadence → 6 slots/day × 6 topics means each topic
+ *    surfaces once a day, 24 hours apart.
+ *  - 7 topics on a 4h cadence → 6 slots/day × 7 topics means the rotation
+ *    precesses by one slot per day, so each topic still gets its turn and
+ *    every topic is covered roughly every 7*4=28 hours. No topic is ever
+ *    starved.
+ *
+ * Topics are ordered by `display_order` (ascending) with `slug` as a stable
+ * tiebreaker, so adding or reordering topics in the database changes the
+ * rotation deterministically.
  */
 export function pickTopicForSlot(
   topics: Topic[],
@@ -390,14 +427,17 @@ export function pickTopicForSlot(
   slotHours = 4,
 ): Topic | null {
   if (topics.length === 0) return null;
-  const slot = Math.floor(now.getUTCHours() / slotHours);
   const sorted = [...topics].sort((a, b) => {
     if (a.display_order !== b.display_order) {
       return a.display_order - b.display_order;
     }
     return a.slug.localeCompare(b.slug);
   });
-  return sorted[slot % sorted.length];
+  const slotMs = Math.max(1, Math.round(slotHours * 60 * 60 * 1000));
+  const globalSlot = Math.floor(now.getTime() / slotMs);
+  const idx =
+    ((globalSlot % sorted.length) + sorted.length) % sorted.length;
+  return sorted[idx];
 }
 
 export interface ScheduleOptions {
