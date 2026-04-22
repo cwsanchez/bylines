@@ -110,7 +110,7 @@ function EmptyState({ tf }: { tf: Timeframe }) {
       <h2 className="font-display text-2xl">No articles yet</h2>
       <p className="mt-2 text-muted-foreground">
         Nothing has been published in {label}. The newsroom rotates through the
-        beats every two hours &mdash; check back soon, peek at the{" "}
+        beats every four hours &mdash; check back soon, peek at the{" "}
         <a href="/archive" className="underline underline-offset-4">
           archive
         </a>

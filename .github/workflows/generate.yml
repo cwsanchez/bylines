@@ -17,9 +17,11 @@ name: Generate articles
 on:
   schedule:
     # Every 4 hours, on the hour, UTC. Aligns with generateOnSchedule's
-    # slotHours=4 cadence: 6 slots per day, 6 topics, so each topic gets one
-    # run per day and the rolling 24h cap of 2 articles/topic stays a safety
-    # ceiling rather than a hard limiter. Keeps things simple and cheap.
+    # slotHours=4 cadence: 6 slots per day rotating across the topic list.
+    # `pickTopicForSlot` uses a global slot counter (total slots since the
+    # Unix epoch) so the rotation adapts automatically when topics are added
+    # or removed. With the current 7 topics that's ~1 run per topic every
+    # ~28 hours, comfortably under the rolling 24h cap of 2 articles/topic.
     - cron: "0 */4 * * *"
   # Allow manual "Run workflow" clicks from the GitHub UI.
   workflow_dispatch:

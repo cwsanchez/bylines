@@ -5,8 +5,10 @@
 reporters and no human editors &mdash; just a small, transparent pipeline:
 
 1. **Find the news.** For each beat (tech, US politics, world, games, sports,
-   science), Grok is prompted to pick the most important, distinct stories of
-   the last ~48 hours using its `x_search` and `web_search` tools.
+   science, finance), Grok is prompted to pick the most important, distinct
+   stories of the last ~48 hours using its `x_search` and `web_search` tools,
+   with beat-specific editorial guidance (e.g. the finance beat prioritizes
+   market-moving events, central-bank actions, and earnings).
 2. **Assign a voice.** Each story is routed to one of a fixed roster of
    named "columnist" personas &mdash; a neutral wire reporter, a center-left
    explainer, a moderate-interventionist conservative, a mild both-sider, a
@@ -92,7 +94,7 @@ install it:
 The four tables are:
 
 - **`topics`** &mdash; curated beat list: tech, us-politics, world, games,
-  sports, science (seed rows live in the app / your own fixtures).
+  sports, science, finance (seed rows live in the app / your own fixtures).
 - **`authors`** &mdash; the named personas Grok writes as. Each has a
   `persona_prompt` spliced into the system message at write time.
 - **`articles`** &mdash; the main content table. `sources` is JSON of
@@ -150,10 +152,12 @@ keeps the site fresh without bursty spikes of xAI traffic:
 
 - Every **four hours** (UTC), the workflow `POST`s to
   `/api/generate?schedule=1&slot_hours=4` on your production deployment.
-- In scheduled mode the endpoint picks **one** topic based on the current UTC
-  slot and writes **one** article for it. With six topics on a four-hour
-  cadence, that's six slots per day &mdash; so each topic gets one fresh
-  article per day, 24 hours apart. Simple, cheap, and easy to reason about.
+- In scheduled mode the endpoint picks **one** topic based on the current
+  slot counter (total slots since the Unix epoch) and writes **one** article
+  for it. With seven topics on a four-hour cadence, that's six slots per day
+  across seven topics, so the rotation precesses by one slot per day and
+  every topic still gets its turn, ~28 hours apart. Adding or removing
+  topics is safe &mdash; the rotation adapts automatically.
 - A rolling **24-hour cap of 2 articles per topic** is still enforced by
   `generateOnSchedule`, so it acts as a safety ceiling for manual reruns
   rather than the primary throttle. The cap is tunable via `?daily_cap=N`
