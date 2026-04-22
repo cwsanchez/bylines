@@ -16,9 +16,11 @@ name: Generate articles
 
 on:
   schedule:
-    # Every 2 hours, on the hour, UTC. Aligns with generateOnSchedule's
-    # default slotHours=2 cadence (6 topics, ~2 runs/topic/day, ~12h apart).
-    - cron: "0 */2 * * *"
+    # Every 4 hours, on the hour, UTC. Aligns with generateOnSchedule's
+    # slotHours=4 cadence: 6 slots per day, 6 topics, so each topic gets one
+    # run per day and the rolling 24h cap of 2 articles/topic stays a safety
+    # ceiling rather than a hard limiter. Keeps things simple and cheap.
+    - cron: "0 */4 * * *"
   # Allow manual "Run workflow" clicks from the GitHub UI.
   workflow_dispatch:
     inputs:
@@ -69,7 +71,7 @@ jobs:
           COUNT: ${{ inputs.count }}
         run: |
           if [ -z "$MODE" ] || [ "$MODE" = "schedule" ]; then
-            URL="$BASE/api/generate?schedule=1"
+            URL="$BASE/api/generate?schedule=1&slot_hours=4"
           else
             if [ -z "$TOPIC" ]; then
               echo "mode=topic requires a topic input" >&2

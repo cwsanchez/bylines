@@ -377,16 +377,17 @@ export async function generateAll(
 /**
  * Pick which topic a given cron tick should service.
  *
- * The site runs one cron tick every `slotHours` hours (default 2). Across a
+ * The site runs one cron tick every `slotHours` hours (default 4). Across a
  * 24h day that yields `24 / slotHours` slots. We cycle through topics by slot
  * so that every topic gets the same number of runs per day, spaced as far
- * apart as possible. With 6 topics on a 2h cadence, each topic gets two runs
- * ~12 hours apart, for a natural 2-per-topic-per-day throughput.
+ * apart as possible. With 6 topics on a 4h cadence, each topic gets one run
+ * per day, 24 hours apart — a natural 1-per-topic-per-day throughput that
+ * still comfortably fits under the rolling 24h cap of 2 articles/topic.
  */
 export function pickTopicForSlot(
   topics: Topic[],
   now: Date = new Date(),
-  slotHours = 2,
+  slotHours = 4,
 ): Topic | null {
   if (topics.length === 0) return null;
   const slot = Math.floor(now.getUTCHours() / slotHours);
@@ -424,7 +425,7 @@ export async function generateOnSchedule(
   const dailyCap = opts.dailyCapPerTopic ?? 2;
   const perTick = Math.max(1, opts.perTick ?? 1);
   const now = opts.now ?? new Date();
-  const slotHours = opts.slotHours ?? 2;
+  const slotHours = opts.slotHours ?? 4;
 
   const topics = await listTopics();
   const topic = pickTopicForSlot(topics, now, slotHours);

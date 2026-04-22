@@ -54,12 +54,18 @@ async function run(req: NextRequest) {
     1,
     Math.min(6, Number(url.searchParams.get("daily_cap") ?? 2)),
   );
+  const slotHoursParam = Number(url.searchParams.get("slot_hours") ?? 4);
+  const slotHours =
+    Number.isFinite(slotHoursParam) && slotHoursParam > 0
+      ? Math.max(1, Math.min(24, Math.round(slotHoursParam)))
+      : 4;
 
   try {
     if (schedule) {
       const summary = await generateOnSchedule({
         dailyCapPerTopic: dailyCap,
         perTick: 1,
+        slotHours,
       });
       return NextResponse.json({ ok: true, schedule: true, summary });
     }
