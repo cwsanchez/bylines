@@ -125,6 +125,18 @@ jobs:
               echo "success=true" >> "$GITHUB_OUTPUT" || true
               exit 0
             fi
+            # 401/403 is an auth config problem, not a transient failure; retrying
+            # just wastes runner time and buries the real cause. Bail immediately
+            # with a pointed hint so the fix (set/rotate GENERATE_SECRET) is obvious.
+            if [ "$http_code" = "401" ] || [ "$http_code" = "403" ]; then
+              if [ -z "$GENERATE_SECRET" ]; then
+                echo "::error::/api/generate returned HTTP $http_code and this workflow sent no Authorization header because the GENERATE_SECRET repo secret is not set. Add it under Settings > Secrets and variables > Actions > New repository secret, with a value that matches the GENERATE_SECRET environment variable on your Vercel deployment."
+              else
+                echo "::error::/api/generate returned HTTP $http_code despite an Authorization header being sent. The GENERATE_SECRET repo secret likely does not match the GENERATE_SECRET env var on the Vercel deployment. Rotate both to the same value."
+              fi
+              echo "Body: $last_body"
+              exit 1
+            fi
             if [ "$attempts" -lt "$max" ]; then
               echo "Retrying in ${delay}s..."
               sleep "$delay"
